@@ -1,0 +1,176 @@
+name: Deploy JupyterLite
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'machine_learning/**'
+      - 'site-requirements.txt'
+      - 'jupyter_lite_config.json'
+      - 'overrides.json'
+      - 'tests/**'
+      - 'tools/ml_kernel/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-kernel-recovery
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: site-requirements.txt
+      - name: Install JupyterLite builder
+        run: python -m pip install -r site-requirements.txt
+      - name: Prepare zero-edit machine-learning Pyodide kernel
+        run: |
+          # pyodide-kernel is embedded in the installed JupyterLite labextension.
+          KERNEL_WHEEL="$(python - <<'PY'
+          from pathlib import Path
+          import sys
+          matches=list(Path(sys.prefix).rglob('pyodide_kernel-0.1.1-*.whl'))
+          if len(matches)!=1:
+              raise SystemExit(f'Expected one JupyterLite kernel wheel, found {matches}')
+          print(matches[0])
+          PY
+          )"
+          python tools/ml_kernel/build_custom_kernel.py "$KERNEL_WHEEL" --output .ml-wheel
+          python tests/test-notebook-integrity.py
+          python tests/test-kernel-transform.py
+          python tests/test-imports-bootstrap.py
+          python tests/test-legacy-versions.py
+          python tools/ml_kernel/stage_notebooks.py --site-base /machine_learning-legacy
+          python tests/test-notebook-integrity.py --staged .ml-contents
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          original = Path('machine_learning/1. Linear Regression/2.Model_Representation.ipynb')
+          deployed = Path('.ml-contents/1. Linear Regression/2.Model_Representation.ipynb')
+          assert json.loads(original.read_text())['metadata']['kernelspec']['name'] == 'python3'
+          assert json.loads(deployed.read_text())['metadata']['kernelspec']['name'] == 'python'
+          PY
+      - name: Bundle Python widget and plotting wheels with the static site
+        run: |
+          # Match the exact ipympl/ipywidgets front-end extensions installed above.
+          python - <<'PY'
+          from importlib.metadata import version
+          from pathlib import Path
+          import subprocess
+          import sys
+          wheel_dir = Path('.ml-wheel')
+          packages = [f'ipympl=={version("ipympl")}',
+                      f'ipywidgets=={version("ipywidgets")}',
+                      'seaborn==0.11.2', 'ipython==8.12.3',
+                      'widgetsnbextension==3.5.2',
+                      'jupyterlab-widgets==1.1.11',
+                      'ipython-genutils==0.2.0']
+          subprocess.run(
+              [sys.executable, '-m', 'pip', 'download', '--no-deps',
+               '--only-binary=:all:', '--dest', str(wheel_dir), *packages],
+              check=True
+          )
+          print('Bundled course widget wheels:', sorted(x.name for x in wheel_dir.glob('*.whl')))
+          PY
+      - name: Build static site
+        run: jupyter lite build --contents .ml-contents --output-dir dist
+      - name: Fix JupyterLite 0.1.1 Webpack Worker import
+        run: |
+          python tests/test-legacy-worker-patch.py
+          python tools/ml_kernel/patch_legacy_worker.py --dist dist
+      - name: Self-host Pyodide WebAssembly and standard library
+        run: |
+          npm install --prefix .pyodide-vendor --no-save --ignore-scripts --no-audit --no-fund pyodide@0.23.4
+          python tools/ml_kernel/vendor_pyodide.py --dist dist --base-path /machine_learning-legacy
+      - name: Bundle Adobe Source Han Sans SC for Matplotlib
+        run: |
+          python -m pip install 'fonttools>=4.55,<5'
+          python tools/ml_kernel/vendor_chinese_font.py --output dist/assets/fonts
+      - name: Bundle TensorFlow.js for browser and Pyodide workers
+        run: |
+          npm install --prefix .tfjs-vendor --no-save --ignore-scripts --no-audit --no-fund @tensorflow/tfjs@4.22.0 @tensorflow/tfjs-backend-webgpu@4.22.0
+          mkdir -p dist/vendor
+          cp .tfjs-vendor/node_modules/@tensorflow/tfjs/dist/tf.min.js dist/vendor/tf.min.js
+          cp .tfjs-vendor/node_modules/@tensorflow/tfjs-backend-webgpu/dist/tf-backend-webgpu.min.js dist/vendor/tf-backend-webgpu.min.js
+          cp machine_learning/browser_ml/course-losses.js dist/vendor/course-losses.js
+          test -s dist/vendor/tf.min.js
+          test -s dist/vendor/tf-backend-webgpu.min.js
+          test -s dist/vendor/course-losses.js
+      - name: Verify notebook syntax and static resources
+        run: |
+          python -m compileall -q machine_learning/browser_ml
+          python -m compileall -q tools/ml_kernel
+          python tests/test-legacy-versions.py --dist dist
+          test -s dist/pypi/all.json
+          test -s dist/pypi/pyodide_kernel-0.1.1-py3-none-any.whl
+          python - <<'PY'
+          import json, pathlib
+          files=list(pathlib.Path('machine_learning').rglob('*.ipynb'))
+          assert len(files)>=43, len(files)
+          for f in files: json.loads(f.read_text(encoding='utf-8'))
+          output=pathlib.Path('dist')
+          assert (output/'lab/index.html').exists()
+          assert (output/'vendor/tf.min.js').stat().st_size > 100000
+          assert (output/'pyodide/pyodide.asm.wasm').stat().st_size > 5000000
+          lock=json.loads((output/'pyodide/repodata.json').read_text())['packages']
+          for extra in ('h5py', 'pillow'):
+              filename=lock[extra]['file_name']
+              assert '://' not in filename, f'{extra} must be self-hosted'
+              assert (output/'pyodide'/filename).is_file(), f'Missing {extra} wheel'
+          js = json.loads((output/'jupyter-lite.json').read_text())
+          opts=js['jupyter-config-data']['litePluginSettings']['@jupyterlite/pyodide-kernel-extension:kernel']
+          assert opts['pyodideUrl']=='/machine_learning/pyodide/pyodide.mjs'
+          assert (output/'vendor/tf-backend-webgpu.min.js').stat().st_size > 100000
+          assert (output/'vendor/course-losses.js').stat().st_size > 500
+          assert (output/'assets/fonts/SourceHanSansSC-Regular.otf').stat().st_size == 16529832
+          assert 'SIL OPEN FONT LICENSE' in (output/'assets/fonts/OFL-LICENSE.txt').read_text()
+          assert (output/'api/translations/zh_CN.json').exists()
+          assert any(output.rglob('pyodide_kernel-0.1.1-py3-none-any.whl')), 'Patched Pyodide kernel wheel not deployed'
+          assert any(output.rglob('ipympl-*.whl')), 'ipympl Python wheel is not bundled'
+          assert any(output.rglob('ipywidgets-*.whl')), 'ipywidgets Python wheel is not bundled'
+          assert any(output.rglob('seaborn-*.whl')), 'seaborn Python wheel is not bundled'
+          print('Validated',len(files),'notebooks, TF.js bundle and Chinese translation')
+          PY
+      - name: Test scientific WASM packages and TensorFlow.js in Chromium
+        run: |
+          npm install --prefix .browser-test --no-save --ignore-scripts --no-audit --no-fund playwright@1.56.1
+          .browser-test/node_modules/.bin/playwright install chromium
+          cp machine_learning/browser_ml/tfjs_bridge.py dist/vendor/tfjs_bridge.py
+          cp machine_learning/browser_ml/tfjs_compat.py dist/vendor/tfjs_compat.py
+          cp machine_learning/browser_ml/tfjs_tensor.py dist/vendor/tfjs_tensor.py
+          cp machine_learning/browser_ml/tfjs_layers.py dist/vendor/tfjs_layers.py
+          node tests/browser-smoke.cjs
+          node tests/repl-zero-edit.cjs
+          node tests/notebook-imports.cjs
+      - name: Legacy browser interface regression (non-blocking preview)
+        continue-on-error: true
+        run: |
+          # Interactive ipympl and Notebook UI are still under investigation.
+          node tests/notebook-ui.cjs
+          node tests/repl-widget.cjs
+      # Manual builds of compat must not overwrite the main Pages site.
+      - name: Configure Pages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+      - name: Upload artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+      - name: Deploy Pages
+        if: github.ref == 'refs/heads/main'
+        id: deployment
+        uses: actions/deploy-pages@v4
