@@ -31,36 +31,18 @@ jobs:
           ref: compat/pyodide-legacy-course
           path: .source-compat
           persist-credentials: false
-      - name: Import the complete compat snapshot and correct Pages base URL
+      - name: Import complete compat snapshot without changing Pages workflows
         shell: bash
         run: |
           set -euo pipefail
           rsync -a --delete \
             --exclude='/.git/' \
             --exclude='/.source-compat/' \
-            --exclude='/.github/workflows/import-compat.yml' \
+            --exclude='/.github/workflows/' \
             .source-compat/ ./
           python - <<'PY'
           from pathlib import Path
           import json
-          workflow = Path(".github/workflows/pages.yml")
-          content = workflow.read_text(encoding="utf-8")
-          assert "--site-base /machine_learning" in content
-          assert "--base-path /machine_learning" in content
-          content = content.replace(
-              "--site-base /machine_learning", "--site-base /machine_learning-legacy"
-          ).replace(
-              "--base-path /machine_learning", "--base-path /machine_learning-legacy"
-          )
-          # Do not block a public preview on the known ipympl widget-rendering
-          # timeout; the main scientific and TF.js smoke tests still run.
-          assert "          node tests/repl-widget.cjs" in content
-          content = content.replace(
-              "          node tests/repl-widget.cjs",
-              "          # Legacy interactive ipympl is not yet passing headless CI.\n"
-              "          # Leave this as a separately tracked compatibility issue."
-          )
-          workflow.write_text(content, encoding="utf-8")
           for path in sorted(Path("tests").glob("*.cjs")):
               original = path.read_text(encoding="utf-8")
               changed = original.replace(
