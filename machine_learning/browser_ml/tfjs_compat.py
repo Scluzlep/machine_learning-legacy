@@ -343,7 +343,7 @@ class Sequential:
                             learning_rate=float(optimizer.learning_rate), metrics=metrics)
 
     async def fit(self, X, y, epochs=10, batch_size=32,
-                  verbose=0, shuffle=True, **kwargs):
+                  verbose=0, shuffle=True, yield_every="epoch", **kwargs):
         if kwargs:
             raise TypeError("Unsupported fit arguments: " + ", ".join(kwargs))
         # TF.js Layers validates y shape before invoking a custom loss.
@@ -361,7 +361,7 @@ class Sequential:
             y = np.eye(n_classes, dtype=np.float32)[values.astype(np.int32)]
         data = await self._model.fit(X, y, epochs=epochs,
                                      batch_size=batch_size, verbose=verbose,
-                                     shuffle=shuffle)
+                                     shuffle=shuffle, yield_every=yield_every)
         return History(data)
 
     def predict(self, X, **kwargs):

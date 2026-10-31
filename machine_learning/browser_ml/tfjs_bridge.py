@@ -11,6 +11,7 @@ Usage (Pyodide kernel):
 from __future__ import annotations
 
 from urllib.parse import urlsplit
+from time import perf_counter
 
 import numpy as np
 
@@ -24,6 +25,7 @@ except ImportError:
 _tf = None
 _webgpu_loaded = False
 _backend_attempts = []
+_last_training = None
 
 
 def _config(**kwargs):
@@ -123,11 +125,20 @@ async def load_tfjs(url=None, backend="auto", webgpu_url=None):
 
 def backend_info():
     """Show active backend, WebGPU availability and fallback reasons."""
-    return {
+    info = {
         "backend": backend(),
         "worker_webgpu_available": _worker_has_webgpu(),
         "fallbacks": list(_backend_attempts),
+        "last_training": dict(_last_training) if _last_training is not None else None,
     }
+    # tf.memory() reports tracked tensors only, not the Pyodide/WASM heap.
+    try:
+        memory = _require_tf().memory()
+        info["tensors"] = int(memory.numTensors)
+        info["tensor_bytes"] = int(memory.numBytes)
+    except Exception:
+        pass
+    return info
 
 
 def _require_tf():
@@ -289,7 +300,20 @@ class Sequential:
             self._model.compile(self._compile_options)
 
     async def fit(self, X, y, *, epochs=10, batch_size=32, verbose=0,
-                  shuffle=True):
+                  shuffle=True, yield_every="epoch"):
+        """Train in the Worker with fewer TF.js nextFrame event-loop stalls.
+
+        TF.js defaults to yielding about every 125 ms even in a background
+        Worker. Yielding once per epoch avoids this scheduling overhead for
+        course minibatch training, while preserving batch size, shuffle,
+        optimizer steps, numerical operations and history values.
+        Set yield_every="auto" to restore upstream behavior.
+        """
+        if yield_every not in ("auto", "batch", "epoch", "never"):
+            if (isinstance(yield_every, bool) or
+                    not isinstance(yield_every, (int, float)) or
+                    yield_every <= 0):
+                raise ValueError("yield_every must be auto/batch/epoch/never or positive milliseconds")
         data = np.asarray(X, dtype=np.float32)
         if data.ndim not in (2, 3, 4):
             raise ValueError("model.fit expects rank 2 to 4 input data")
@@ -298,13 +322,30 @@ class Sequential:
             raise ValueError("Compile the model before calling fit")
         xjs = _tensor(data)
         yjs = _tensor(y)
+        started = perf_counter()
         try:
             result = await self._model.fit(
                 xjs, yjs,
                 _config(epochs=int(epochs), batchSize=int(batch_size),
-                        verbose=int(verbose), shuffle=bool(shuffle))
+                        verbose=int(verbose), shuffle=bool(shuffle),
+                        yieldEvery=yield_every)
             )
-            return result.history.to_py()
+            history = result.history.to_py()
+            elapsed_ms = (perf_counter() - started) * 1000
+            self._last_fit = {
+                "backend": backend(),
+                "epochs": int(epochs),
+                "samples": len(data),
+                "batch_size": int(batch_size),
+                "yield_every": yield_every,
+                "elapsed_ms": round(elapsed_ms, 1),
+                "samples_per_second": round(
+                    len(data) * int(epochs) * 1000 / elapsed_ms, 1
+                ) if elapsed_ms > 0 else None,
+            }
+            global _last_training
+            _last_training = self._last_fit
+            return history
         finally:
             xjs.dispose()
             yjs.dispose()
