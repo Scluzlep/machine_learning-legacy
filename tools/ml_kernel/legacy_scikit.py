@@ -51,10 +51,8 @@ def install_linear_regression():
 
         def __init__(self, *, fit_intercept=True, copy_X=True, tol=1e-6,
                      n_jobs=None, positive=False, normalize=False):
-            if normalize not in (False, None):
-                raise ValueError(
-                    "normalize=True is not supported; use a preprocessing scaler"
-                )
+            if normalize not in (True, False, None):
+                raise ValueError("normalize must be True or False")
             self.normalize = normalize
             self.tol = tol
             kwargs = dict(fit_intercept=fit_intercept, copy_X=copy_X,
@@ -62,6 +60,32 @@ def install_linear_regression():
             if "tol" in inspect.signature(Original.__init__).parameters:
                 kwargs["tol"] = tol
             super().__init__(**kwargs)
+
+        def fit(self, X, y, sample_weight=None):
+            # scikit-learn<=1.1 normalized centered columns to unit L2
+            # length before OLS. Preserve that behavior for teaching cells.
+            if not self.normalize or not self.fit_intercept:
+                return super().fit(X, y, sample_weight=sample_weight)
+            import numpy as np
+            values = np.asarray(X, dtype=np.float64)
+            if values.ndim != 2:
+                raise ValueError("Expected a two-dimensional feature matrix")
+            if sample_weight is None:
+                means = values.mean(axis=0)
+                scale = np.linalg.norm(values - means, axis=0)
+            else:
+                weights = np.asarray(sample_weight, dtype=np.float64)
+                if (weights.shape != (values.shape[0],) or
+                        not np.all(np.isfinite(weights)) or
+                        np.any(weights < 0) or weights.sum() <= 0):
+                    raise ValueError("Invalid LinearRegression sample_weight")
+                means = np.average(values, axis=0, weights=weights)
+                scale = np.sqrt(np.sum((values - means) ** 2 *
+                                       weights[:, None], axis=0))
+            scale[scale == 0] = 1.0
+            result = super().fit(values / scale, y, sample_weight=sample_weight)
+            self.coef_ = np.asarray(self.coef_) / scale
+            return result
 
     LinearRegression.__name__ = "LinearRegression"
     LinearRegression.__qualname__ = "LinearRegression"

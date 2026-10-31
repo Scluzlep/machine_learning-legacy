@@ -36,6 +36,14 @@ class _Tensor:
     def dtype(self):
         return self.value.dtype
 
+    @property
+    def ndim(self):
+        return self.value.ndim
+
+    @property
+    def size(self):
+        return self.value.size
+
     def item(self):
         return self.value.item()
 
@@ -54,6 +62,18 @@ class _Tensor:
 
     def __getitem__(self, item):
         return self.value[item]
+
+    # Comparisons in TF 2 eager mode return a bool Tensor, never a Python bool.
+    # Original lecture cells use (model(X) >= 0.5).numpy() for predictions.
+    def _compare(self, other, operation):
+        return _Tensor(operation(self.value, np.asarray(other)))
+
+    def __lt__(self, other): return self._compare(other, np.less)
+    def __le__(self, other): return self._compare(other, np.less_equal)
+    def __gt__(self, other): return self._compare(other, np.greater)
+    def __ge__(self, other): return self._compare(other, np.greater_equal)
+    def __eq__(self, other): return self._compare(other, np.equal)
+    def __ne__(self, other): return self._compare(other, np.not_equal)
 
 
 def _sigmoid(x):

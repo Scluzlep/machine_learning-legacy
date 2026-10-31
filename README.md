@@ -1,4 +1,4 @@
-> 独立预览版：同步自原仓库的 `compat/pyodide-legacy-course` 分支，原始 Notebook 不作修改。交互式 Matplotlib 后端仍在兼容测试中。
+> 独立预览版：同步自原仓库的 `compat/pyodide-legacy-course` 分支，原始 Notebook 不作修改。交互式 Matplotlib 已通过浏览器测试；部分教材练习仍在兼容测试中。
 
 # 机器学习课程实验
 
