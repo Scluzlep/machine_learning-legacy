@@ -8,7 +8,7 @@ const crypto = require('node:crypto');
 const { chromium } = require(process.cwd() + '/.browser-ci/node_modules/playwright');
 
 const suite = process.env.NOTEBOOK_SUITE || '1. Linear Regression';
-const base = (process.env.SITE_URL || 'https://scluzlep.github.io/machine_learning/').replace(/\/?$/, '/');
+const base = (process.env.SITE_URL || 'https://scluzlep.github.io/machine_learning-legacy/').replace(/\/?$/, '/');
 const root = path.join(process.cwd(), 'notebook-report');
 const timeoutMs = Number(process.env.NOTEBOOK_TIMEOUT_MS || 150000);
 const maxCellText = 200000;
