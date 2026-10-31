@@ -44,7 +44,7 @@ const server=spawn('python',['-m','http.server',String(port),'--bind','127.0.0.1
    await page.waitForTimeout(2000);
    const originalPixels=await canvas.evaluate(element=>element.toDataURL());
 
-   const slider=page.locator('.widget-intslider [role="slider"], .widget-intslider .noUi-handle, .widget-intslider input[type="range"]').first();
+   const slider=page.locator('.widget-hslider .ui-slider-handle, .widget-vslider .ui-slider-handle').first();
    await slider.waitFor({timeout:30000});
    await slider.focus();
    await slider.press('End');
