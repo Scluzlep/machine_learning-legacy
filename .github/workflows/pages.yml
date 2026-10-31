@@ -164,7 +164,7 @@ jobs:
       - name: Check legacy ipywidgets and Matplotlib backend (diagnostic)
         continue-on-error: true
         run: |
-          node tests/repl-widget.cjs
+          node tests/notebook-c2-widget.cjs
           node tests/notebook-overfit.cjs
       # Manual builds of compat must not overwrite the main Pages site.
       - name: Configure Pages
