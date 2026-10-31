@@ -1,0 +1,238 @@
+name: Browser Diagnostics - Legacy Pages (non-gating)
+
+# Separate from pages.yml. Test the deployed site, never build or deploy.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/browser-diagnostics.yml'
+      - '.github/browser-diagnostics/notebook-browser-suite.cjs'
+
+permissions:
+  contents: read
+
+jobs:
+  browser-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Chromium and Playwright
+        continue-on-error: true
+        run: |
+          npm install --prefix .browser-ci --no-save --ignore-scripts --no-audit --no-fund playwright@1.56.1
+          .browser-ci/node_modules/.bin/playwright install chromium
+      - name: Browser diagnostics (FAIL means report only)
+        if: always()
+        continue-on-error: true
+        env:
+          DEBUG: pw:api
+          SITE_URL: https://scluzlep.github.io/machine_learning-legacy/
+        run: |
+          mkdir -p browser-report/screenshots
+          node - <<'NODE' > >(tee browser-report/runner.log) 2>&1
+          const fs=require('node:fs');
+          const dir='browser-report';
+          const site=(process.env.SITE_URL || 'https://scluzlep.github.io/machine_learning-legacy/').replace(/\/?$/,'/');
+          const tests=[],critical=[],counts={consoleErrors:0,pageErrors:0,http5xx:0,failedRequests:0};
+          let browser,context,active,tracing=false;
+          const now=()=>new Date().toISOString();
+          const err=e=>e?.stack||String(e);
+          function record(file,data) {
+            fs.appendFileSync(dir+'/'+file,JSON.stringify({timestamp:now(),...data})+'\n');
+          }
+          function log(kind,detail) {console.log('['+now()+'] ['+kind+']',detail);}
+          function attach(page,name) {
+            active=page;
+            page.on('console',m=>{
+              const obj={page:name,kind:'console',level:m.type(),text:m.text(),source:m.location()};
+              record('browser-console.jsonl',obj);
+              log('console '+m.type(),name+' '+m.text());
+              if(m.type()==='error') {
+                counts.consoleErrors++;
+                if(/ChunkLoadError|Loading chunk|Failed to fetch dynamically imported module|Uncaught|WebAssembly|pyodide/i.test(m.text()))critical.push(obj);
+              }
+            });
+            page.on('pageerror',e=>{
+              counts.pageErrors++;
+              const obj={page:name,kind:'pageerror',message:err(e)};
+              record('browser-console.jsonl',obj);critical.push(obj);log('pageerror',obj.message);
+            });
+            page.on('response',r=>{
+              const obj={page:name,kind:'response',status:r.status(),url:r.url()};
+              record('network.jsonl',obj);
+              if(r.status()>=400)log('HTTP',r.status()+' '+r.url());
+              if(r.status()>=500){counts.http5xx++;critical.push(obj);}
+            });
+            page.on('requestfailed',r=>{
+              counts.failedRequests++;
+              const obj={page:name,kind:'requestfailed',url:r.url(),error:r.failure()?.errorText};
+              record('network.jsonl',obj);log('network',JSON.stringify(obj));
+              if(/\.(js|mjs|wasm|whl)([?#]|$)/i.test(obj.url) && !/ERR_ABORTED/i.test(obj.error||''))critical.push(obj);
+            });
+            page.on('worker',w=>record('browser-console.jsonl',{page:name,kind:'worker',url:w.url()}));
+            page.on('crash',()=>critical.push({page:name,kind:'page-crashed'}));
+          }
+          async function screenshot(name) {
+            if(active&&!active.isClosed())await active.screenshot({path:dir+'/screenshots/'+name+'.png',fullPage:true,timeout:15000}).catch(e=>log('screenshot',err(e)));
+          }
+          async function test(name,fn) {
+            const start=Date.now();log('TEST','START '+name);
+            try {
+              const detail=String(await fn()||'');
+              tests.push({name,status:'PASS',seconds:(Date.now()-start)/1000,detail});
+              log('PASS',name+' '+detail.slice(0,2000));
+            }catch(e) {
+              const detail=err(e);tests.push({name,status:'FAIL',seconds:(Date.now()-start)/1000,detail});
+              log('FAIL',name+' '+detail);await screenshot('failed-'+tests.length);
+            }
+          }
+          async function dump(page,file) {
+            if(!page||page.isClosed())return;
+            const data=await page.evaluate(()=>({
+              url:location.href,text:document.body?.innerText?.slice(-25000),
+              outputs:[...document.querySelectorAll('.jp-OutputArea-output')].map(x=>x.innerText).slice(-100),
+              prompts:[...document.querySelectorAll('.jp-InputPrompt')].map(x=>x.textContent).slice(0,50)
+            })).catch(e=>({error:err(e)}));
+            fs.writeFileSync(dir+'/'+file,JSON.stringify(data,null,2));
+          }
+          async function run() {
+            let chromium;
+            try {({chromium}=require(process.cwd()+'/.browser-ci/node_modules/playwright'));}
+            catch(e){await test('Playwright installation',async()=>{throw e});return;}
+            await test('Launch Chromium',async()=>{
+              browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+              context=await browser.newContext({viewport:{width:1440,height:900}});
+              await context.tracing.start({screenshots:true,snapshots:true,sources:true});
+              tracing=true;
+              return 'Browser ready';
+            });
+            if(!context)return;
+            const lab=await context.newPage();attach(lab,'lab');
+            await test('Deployed JupyterLab loads',async()=>{
+              const r=await lab.goto(new URL('lab/',site).href,{waitUntil:'domcontentloaded',timeout:60000});
+              if(r?.status()!==200)throw Error('Lab HTTP '+r?.status());
+              await lab.locator('.jp-DirListing-item').filter({hasText:'1. Linear Regression'}).first().waitFor({timeout:90000});
+              await screenshot('lab-loaded');return 'HTTP 200 and file browser visible';
+            });
+            await test('Original Notebook import cell executes',async()=>{
+              await lab.locator('.jp-DirListing-item').filter({hasText:'1. Linear Regression'}).first().dblclick({timeout:25000});
+              await lab.locator('.jp-DirListing-item').filter({hasText:'4. Gradient Descent for Linear Regression.ipynb'}).first().dblclick({timeout:25000});
+              const nb=lab.locator('.jp-NotebookPanel').first();await nb.waitFor({timeout:60000});
+              await lab.waitForFunction(()=>/Python|Pyodide/i.test(document.querySelector('.jp-NotebookPanel .jp-Toolbar')?.textContent||''),null,{timeout:60000});
+              const cell=nb.locator('.jp-CodeCell').first();await cell.waitFor({timeout:45000});
+              await cell.click();await lab.keyboard.press('Control+Enter');
+              await lab.waitForFunction(()=>/\[\d+\]/.test(document.querySelector('.jp-NotebookPanel .jp-CodeCell .jp-InputPrompt')?.textContent||''),null,{timeout:210000});
+              const output=await cell.locator('.jp-OutputArea').innerText().catch(()=>'');
+              if(/Traceback|ModuleNotFoundError|ImportError|ChunkLoadError|Error while importing/i.test(output))throw Error(output.slice(-8000));
+              await screenshot('notebook-executed');return 'Kernel ran original cell: '+output.slice(0,1200);
+            });
+            await dump(lab,'notebook-output.json');await lab.close().catch(()=>{});
+            const repl=await context.newPage();attach(repl,'repl');
+            await test('REPL Python numpy/pandas/scipy/sklearn execution',async()=>{
+              const python=[
+                'import sys',
+                'print("ML_DIAG_START",sys.version,flush=True)',
+                'import numpy as np, pandas as pd, scipy, sklearn',
+                'from sklearn.linear_model import LinearRegression',
+                'reg=LinearRegression().fit([[1],[2],[3]],[3,5,7])',
+                'assert abs(float(reg.predict([[4]])[0])-9)<1e-5',
+                'print("ML_DIAG_PASS",np.__version__,pd.__version__,scipy.__version__,sklearn.__version__,flush=True)'
+              ].join('\n');
+              const url=new URL('repl/index.html',site);
+              url.searchParams.set('kernel','python');url.searchParams.set('code',python);
+              const r=await repl.goto(url.href,{waitUntil:'domcontentloaded',timeout:60000});
+              if(r?.status()!==200)throw Error('REPL HTTP '+r?.status());
+              await repl.waitForFunction(()=>[...document.querySelectorAll('.jp-OutputArea-output')].some(x=>x.textContent.includes('ML_DIAG_PASS')),null,{timeout:210000});
+              const output=(await repl.locator('.jp-OutputArea-output').allInnerTexts()).join('\n');
+              if(/Traceback|ModuleNotFoundError|ImportError|ChunkLoadError/i.test(output))throw Error(output.slice(-8000));
+              await screenshot('repl-executed');return output.slice(-1500);
+            });
+            await dump(repl,'repl-output.json');await repl.close().catch(()=>{});
+            await test('Console errors, JS chunks and HTTP 5xx',async()=>{
+              if(critical.length || counts.consoleErrors)throw Error(JSON.stringify({counts,critical:critical.slice(0,30)}));
+              return JSON.stringify(counts);
+            });
+          }
+          async function finish() {
+            if(tracing&&context)await context.tracing.stop({path:dir+'/trace.zip'}).catch(e=>log('trace',err(e)));
+            if(browser)await browser.close().catch(e=>log('browser',err(e)));
+            const fails=tests.filter(t=>t.status==='FAIL').length;
+            fs.writeFileSync(dir+'/results.json',JSON.stringify({site,generated:now(),pass:tests.length-fails,fail:fails,counts,critical,tests},null,2));
+            const summary=['# Browser usability diagnostics','',
+              'Live site: '+site,'',
+              '**'+(tests.length-fails)+' PASS / '+fails+' FAIL** (non-gating: Action stays green)','',
+              '| Check | Result | Duration | Detail |','| --- | --- | ---: | --- |',
+              ...tests.map(t=>'| '+t.name+' | '+t.status+' | '+t.seconds.toFixed(1)+'s | '+t.detail.replace(/\s+/g,' ').replace(/\|/g,'\\|').slice(0,180)+' |'),
+              '',
+              'Artifact contains: runner.log, full browser console, network log, Notebook/REPL output, screenshots and Playwright trace.'
+            ].join('\n')+'\n';
+            fs.writeFileSync(dir+'/summary.md',summary);
+            if(process.env.GITHUB_STEP_SUMMARY)fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,summary);
+            console.log(summary);
+            process.exitCode=0;
+          }
+          run().catch(e=>{log('FAIL',err(e));tests.push({name:'Diagnostics runner',status:'FAIL',seconds:0,detail:err(e)});}).finally(finish);
+          NODE
+          exit 0
+      - name: Upload full diagnostics as Action artifact
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: jupyterlite-browser-diagnostics
+          path: browser-report/
+          if-no-files-found: warn
+          retention-days: 14
+
+  notebook-suites:
+    name: Notebook suite / ${{ matrix.suite }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 48
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - '1. Linear Regression'
+          - '2. Logistic regression'
+          - '3. ML In Practice'
+          - '4. Neural Network_part_1'
+          - '5. Neural Network_part_2'
+          - '6. Neural Network In Practice 1'
+          - '7. Neural Network In Practice 2'
+          - 'self-check'
+    env:
+      NOTEBOOK_SUITE: ${{ matrix.suite }}
+      NOTEBOOK_TIMEOUT_MS: '150000'
+      SITE_URL: https://scluzlep.github.io/machine_learning-legacy/
+      DEBUG: pw:api
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser runner
+        continue-on-error: true
+        run: |
+          npm install --prefix .browser-ci --no-save --ignore-scripts --no-audit --no-fund playwright@1.56.1
+          .browser-ci/node_modules/.bin/playwright install chromium
+      - name: Run every Notebook and capture each cell (never gate)
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p notebook-report
+          set +e
+          timeout --signal=INT --kill-after=20s 44m node .github/browser-diagnostics/notebook-browser-suite.cjs 2>&1 | tee notebook-report/runner.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "FAIL: Notebook runner returned $status; this is diagnostic-only." | tee -a notebook-report/runner.log
+          fi
+          exit 0
+      - name: Upload per-Notebook diagnostics, including failures
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: notebooks-${{ strategy.job-index }}
+          path: notebook-report/
+          retention-days: 7
+          if-no-files-found: warn
