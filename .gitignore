@@ -1,0 +1,15 @@
+# Jupyter-generated files
+**/.ipynb_checkpoints/
+**/__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+# Local environments / build artifacts
+.venv/
+.env
+.env.*
+!*.env.example
+_output/
+dist/
+.jupyterlite.doit.db
+*.egg-info/
+.DS_Store
