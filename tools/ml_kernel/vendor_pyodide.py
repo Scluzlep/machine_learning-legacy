@@ -22,7 +22,7 @@ CORE = ("pyodide.js", "pyodide.mjs", "pyodide.asm.js", "pyodide.asm.wasm",
         "python_stdlib.zip", "repodata.json")
 COURSE_PACKAGES = ("numpy", "scipy", "pandas", "matplotlib",
                    "scikit-learn", "micropip")
-ON_DEMAND_COURSE_PACKAGES = ("h5py", "Pillow")
+ON_DEMAND_COURSE_PACKAGES = ("h5py", "Pillow", "sqlite3")
 
 
 def _key(packages: dict, name: str) -> str:

@@ -16,6 +16,7 @@ VERSIONS = {
     "matplotlib": "3.5.2",
     "Pillow": "9.1.1",
     "h5py": "3.7.0",
+    "sqlite3": "1.0.0",
 }
 
 
