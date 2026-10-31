@@ -222,7 +222,7 @@ async function recordNotebook(rel) {
       // A media element can cancel an in-flight .mp4 range request on pause,
       // seek, or navigation. Chrome reports ERR_ABORTED, not an HTTP/network
       // error. Keep this event in the raw trace but do not fail the Notebook.
-      if (/\\.mp4(?:[?#]|$)/i.test(item.url) && /ERR_ABORTED/i.test(item.message||'')) {
+      if (/\.mp4(?:[?#]|$)/i.test(item.url) && /ERR_ABORTED/i.test(item.message||'')) {
         append(logs,{...item,kind:'expected-video-abort'});
         return;
       }
