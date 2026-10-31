@@ -43,7 +43,7 @@ const server = spawn('python', ['-m', 'http.server', String(port), '--bind', '12
       'model = Sequential([Dense(2, activation="sigmoid", input_shape=(2,)), Dense(1, activation="sigmoid")])',
       'model.compile(loss=tf.keras.losses.BinaryCrossentropy(), optimizer=tf.keras.optimizers.Adam(learning_rate=0.01))',
       'model.fit([[0,0],[1,0],[0,1],[1,1]], [[0],[1],[1],[1]], epochs=2)',
-      'from browser_ml.tfjs_bridge import backend_info',
+      'from tensorflow.keras.backend import backend_info',
       'training = backend_info()["last_training"]',
       'assert training["yield_every"] == "epoch" and training["epochs"] == 2, training',
       'assert training["elapsed_ms"] >= 0 and training["backend"] in ("cpu", "webgl", "webgpu")',

@@ -413,7 +413,8 @@ async def install(backend="auto"):
     )
     optimizers = _module("tensorflow.keras.optimizers", Adam=Adam)
     regularizers = _module("tensorflow.keras.regularizers", l2=l2)
-    keras_backend = _module("tensorflow.keras.backend", set_floatx=set_floatx, floatx=floatx)
+    keras_backend = _module("tensorflow.keras.backend", set_floatx=set_floatx,
+                            floatx=floatx, backend_info=bridge.backend_info)
     models = _module("tensorflow.keras.models", Sequential=Sequential)
     keras = _module("tensorflow.keras", Sequential=Sequential, Input=Input,
                     layers=layers, activations=activations, losses=losses,
