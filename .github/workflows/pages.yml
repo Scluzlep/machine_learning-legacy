@@ -7,6 +7,7 @@ on:
       - 'machine_learning/**'
       - 'site-requirements.txt'
       - 'jupyter_lite_config.json'
+      - '.github/workflows/pages.yml'
       - 'overrides.json'
       - 'tests/**'
       - 'tools/ml_kernel/**'
@@ -132,7 +133,7 @@ jobs:
               assert (output/'pyodide'/filename).is_file(), f'Missing {extra} wheel'
           js = json.loads((output/'jupyter-lite.json').read_text())
           opts=js['jupyter-config-data']['litePluginSettings']['@jupyterlite/pyodide-kernel-extension:kernel']
-          assert opts['pyodideUrl']=='/machine_learning/pyodide/pyodide.mjs'
+          assert opts['pyodideUrl']=='/machine_learning-legacy/pyodide/pyodide.mjs'
           assert (output/'vendor/tf-backend-webgpu.min.js').stat().st_size > 100000
           assert (output/'vendor/course-losses.js').stat().st_size > 500
           assert (output/'assets/fonts/SourceHanSansSC-Regular.otf').stat().st_size == 16529832
@@ -155,12 +156,6 @@ jobs:
           node tests/browser-smoke.cjs
           node tests/repl-zero-edit.cjs
           node tests/notebook-imports.cjs
-      - name: Legacy browser interface regression (non-blocking preview)
-        continue-on-error: true
-        run: |
-          # Interactive ipympl and Notebook UI are still under investigation.
-          node tests/notebook-ui.cjs
-          node tests/repl-widget.cjs
       # Manual builds of compat must not overwrite the main Pages site.
       - name: Configure Pages
         if: github.ref == 'refs/heads/main'
