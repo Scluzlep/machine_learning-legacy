@@ -1,0 +1,60 @@
+// Prove browser slider updates reach Python and survive rerunning its cell.
+// Unlike the earlier smoke test, this checks actual JS <-> kernel Comm changes.
+const assert=require('node:assert/strict');
+const {spawn}=require('node:child_process');
+const fs=require('node:fs');
+const path=require('node:path');
+const {chromium}=require(process.cwd()+'/.browser-test/node_modules/playwright');
+
+const root=path.join(process.cwd(),'.site-test-root');
+const mount=path.join(root,'machine_learning-legacy');
+fs.mkdirSync(root,{recursive:true});
+if(!fs.existsSync(mount))fs.symlinkSync(path.join(process.cwd(),'dist'),mount,'dir');
+const port=8778;
+const server=spawn('python',['-m','http.server',String(port),'--bind','127.0.0.1','--directory',root],{stdio:'ignore'});
+(async()=>{
+ let browser,page;
+ try{
+   browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+   page=await browser.newPage({viewport:{width:1440,height:900}});
+   const err=[];
+   page.on('pageerror',e=>err.push(String(e)));
+   page.on('console',m=>{if(m.type()==='error')err.push(m.text())});
+   const r=await page.goto('http://127.0.0.1:'+port+'/machine_learning-legacy/lab/',{waitUntil:'domcontentloaded',timeout:60000});
+   assert.equal(r.status(),200);
+   await page.locator('.jp-DirListing-item').filter({hasText:'浏览器环境自检.ipynb'}).first().dblclick({timeout:30000});
+   const panel=page.locator('.jp-NotebookPanel').first();
+   await panel.waitFor({timeout:60000});
+   const cell=panel.locator('.jp-CodeCell').filter({hasText:'_ml_browser_slider'}).first();
+   await cell.waitFor({timeout:30000});
+   // Ctrl+Enter executes the selected cell without entering subsequent labs.
+   await cell.click();
+   await page.keyboard.press('Control+Enter');
+   const readout=page.locator('.widget-html').filter({hasText:'内核收到：'}).first();
+   await readout.waitFor({timeout:110000});
+   assert.match(await readout.innerText(),/42/);
+   const slider=page.locator('.widget-intslider [role="slider"], .widget-intslider .noUi-handle, .widget-intslider input[type="range"]').first();
+   await slider.waitFor({timeout:30000});
+   await slider.focus();
+   await slider.press('End');
+   await page.waitForFunction(()=>[...document.querySelectorAll('.widget-html')].some(e=>/内核收到：100/.test(e.textContent||'')),null,{timeout:15000});
+   // Focus moves during execution, so click the original code cell again.
+   await cell.click();
+   await page.keyboard.press('Control+Enter');
+   await page.waitForFunction(()=>[...document.querySelectorAll('.jp-CodeCell .jp-OutputArea')].some(e=>/Python 当前值：\s*100/.test(e.textContent||'')),null,{timeout:30000});
+   const fresh=page.locator('.widget-html').filter({hasText:'内核收到：'}).last();
+   await fresh.waitFor({timeout:12000});
+   assert.match(await fresh.innerText(),/100/);
+   console.log('ipywidgets JS-to-Python change and rerun value persistence: PASS');
+ }catch(e){
+   console.error('SLIDER INTERACTION TEST FAILED',e);
+   if(page&&!page.isClosed()){
+     console.error('Slider DOM:',(await page.locator('.jp-NotebookPanel').innerText().catch(()=>'')).slice(-4000));
+     await page.screenshot({path:'widget-interaction-failure.png',fullPage:true,timeout:10000}).catch(()=>{});
+   }
+   process.exitCode=1;
+ }finally{
+   if(browser)await browser.close();
+   server.kill();
+ }
+})().catch(e=>{console.error(e);process.exitCode=1});

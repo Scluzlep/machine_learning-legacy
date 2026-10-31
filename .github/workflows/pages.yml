@@ -159,6 +159,7 @@ jobs:
           node tests/browser-smoke.cjs
           node tests/repl-zero-edit.cjs
           node tests/notebook-imports.cjs
+          node tests/repl-widget-interaction.cjs
           node tests/repl-sqlite.cjs
       - name: Check legacy ipywidgets and Matplotlib backend (diagnostic)
         continue-on-error: true
