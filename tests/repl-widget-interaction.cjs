@@ -33,11 +33,28 @@ const server=spawn('python',['-m','http.server',String(port),'--bind','127.0.0.1
    const readout=page.locator('.widget-html').filter({hasText:'内核收到：'}).first();
    await readout.waitFor({timeout:110000});
    assert.match(await readout.innerText(),/42/);
+   // Execute plotting cell and take the actual browser canvas pixels before
+   // changing the slider. Merely checking the numeric widget label is not enough.
+   const plotCell=panel.locator('.jp-CodeCell').filter({hasText:'_ml_browser_plot_update'}).first();
+   await plotCell.waitFor({timeout:30000});
+   await plotCell.click();
+   await page.keyboard.press('Control+Enter');
+   const canvas=plotCell.locator('.jupyter-matplotlib .jupyter-matplotlib-canvas-div canvas').first();
+   await canvas.waitFor({timeout:75000});
+   await page.waitForTimeout(2000);
+   const originalPixels=await canvas.evaluate(element=>element.toDataURL());
+
    const slider=page.locator('.widget-intslider [role="slider"], .widget-intslider .noUi-handle, .widget-intslider input[type="range"]').first();
    await slider.waitFor({timeout:30000});
    await slider.focus();
    await slider.press('End');
    await page.waitForFunction(()=>[...document.querySelectorAll('.widget-html')].some(e=>/内核收到：100/.test(e.textContent||'')),null,{timeout:15000});
+   await page.waitForFunction(({previous})=>{
+     const canvas=document.querySelector('.jupyter-matplotlib .jupyter-matplotlib-canvas-div canvas');
+     return canvas&&canvas.width>0&&canvas.toDataURL()!==previous;
+   },{previous:originalPixels},{timeout:30000});
+   console.log('ipympl canvas pixels changed after slider interaction: PASS');
+
    // Focus moves during execution, so click the original code cell again.
    await cell.click();
    await page.keyboard.press('Control+Enter');
@@ -45,7 +62,12 @@ const server=spawn('python',['-m','http.server',String(port),'--bind','127.0.0.1
    const fresh=page.locator('.widget-html').filter({hasText:'内核收到：'}).last();
    await fresh.waitFor({timeout:12000});
    assert.match(await fresh.innerText(),/100/);
-   console.log('ipywidgets JS-to-Python change and rerun value persistence: PASS');
+
+   // Re-executing the plot cell must read the latest slider value, not 42.
+   await plotCell.click();
+   await page.keyboard.press('Control+Enter');
+   await page.waitForFunction(()=>[...document.querySelectorAll('.jp-CodeCell .jp-OutputArea')].some(e=>/绘图使用的 value=100/.test(e.textContent||'')),null,{timeout:35000});
+   console.log('ipywidgets JS-to-Python update, live plot and rerun value persistence: PASS');
  }catch(e){
    console.error('SLIDER INTERACTION TEST FAILED',e);
    if(page&&!page.isClosed()){
