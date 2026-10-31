@@ -53,6 +53,15 @@ jobs:
               )
               if changed != original:
                   path.write_text(changed, encoding="utf-8")
+          # Source compat uses the original site's URL. Keep the isolated
+          # browser-diagnostics script pointing to this legacy deployment.
+          diagnostics = Path(".github/browser-diagnostics/notebook-browser-suite.cjs")
+          if diagnostics.exists():
+              original = diagnostics.read_text(encoding="utf-8")
+              diagnostics.write_text(original.replace(
+                  "https://scluzlep.github.io/machine_learning/",
+                  "https://scluzlep.github.io/machine_learning-legacy/"
+              ), encoding="utf-8")
           readme = Path("README.md")
           text = readme.read_text(encoding="utf-8")
           text = text.replace(
@@ -61,7 +70,7 @@ jobs:
           )
           text = ("> 独立预览版：同步自原仓库的 "
                   "`compat/pyodide-legacy-course` 分支，原始 Notebook 不作修改。"
-                  "交互式 Matplotlib 后端仍在兼容测试中。\n\n" + text)
+                  "交互式 Matplotlib 已通过浏览器测试；部分教材练习仍在兼容测试中。\n\n" + text)
           readme.write_text(text, encoding="utf-8")
           notebook_count = len(list(Path("machine_learning").rglob("*.ipynb")))
           assert notebook_count == 44, notebook_count
