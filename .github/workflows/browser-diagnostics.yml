@@ -12,6 +12,11 @@ on:
 permissions:
   contents: read
 
+# Only one expensive 44-Notebook regression should run for this preview.
+concurrency:
+  group: legacy-notebook-browser-diagnostics
+  cancel-in-progress: true
+
 jobs:
   browser-check:
     runs-on: ubuntu-latest
@@ -27,7 +32,7 @@ jobs:
         if: always()
         continue-on-error: true
         env:
-          DEBUG: pw:api
+          DEBUG: ''  # Structured JSONL and cell reports remain available
           SITE_URL: https://scluzlep.github.io/machine_learning-legacy/
         run: |
           mkdir -p browser-report/screenshots
@@ -206,7 +211,7 @@ jobs:
       NOTEBOOK_SUITE: ${{ matrix.suite }}
       NOTEBOOK_TIMEOUT_MS: '150000'
       SITE_URL: https://scluzlep.github.io/machine_learning-legacy/
-      DEBUG: pw:api
+      DEBUG: ''  # Structured JSONL and cell reports remain available
     steps:
       - uses: actions/checkout@v4
       - name: Install browser runner
