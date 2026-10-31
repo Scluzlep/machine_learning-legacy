@@ -66,6 +66,26 @@ const server = spawn('python', ['-m', 'http.server', String(port),
     assert.doesNotMatch(outputs.join('\n'), /Glyph \\d+ .*missing from font/i);
 
     assert.doesNotMatch(outputs.join('\n'), /not a recognised.*backend|Traceback|ModuleNotFoundError/);
+    // A notebook may report successful Figure creation while leaving the
+    // actual ipympl canvas entirely blank. Inspect browser pixels, not text.
+    await page.waitForFunction(() => {
+      const nodes = [...document.querySelectorAll('.jupyter-matplotlib-canvas-div canvas')];
+      return nodes.some(c => {
+        if (!c.width || !c.height) return false;
+        try {
+          const {data} = c.getContext('2d').getImageData(0,0,c.width,c.height);
+          let ink = 0;
+          for (let i = 0; i < data.length; i += 4 * 8) {
+            const alpha = data[i+3];
+            if (alpha && (data[i] < 245 || data[i+1] < 245 || data[i+2] < 245)) {
+              if (++ink > 50) return true;
+            }
+          }
+        } catch (_) { /* Wait for browser canvas to become readable. */ }
+        return false;
+      });
+    },null,{timeout:30000});
+    console.log('Live ipympl canvas contains drawn pixels (not white): PASS');
     console.log('Matplotlib interactive ipympl + Adobe Source Han Sans SC glyphs: PASS');
   } catch(error) {
     console.error('Widget smoke failed:', error);
