@@ -66,6 +66,43 @@ def verify(dist: Path | None = None) -> None:
         for name in ("pyodide.mjs", "pyodide.asm.wasm", "repodata.json"):
             assert (pyodide_dir / name).is_file(), name
         packages = json.loads((pyodide_dir / "repodata.json").read_text())["packages"]
+
+        # All dependencies of course-shipped native WASM roots must stay
+        # same-origin; optional packages alone may use Fastly on demand.
+        roots = ("numpy", "scipy", "pandas", "matplotlib", "scikit-learn",
+                 "micropip", "h5py", "pillow", "sqlite3")
+        normalized = {k.lower().replace("_", "-"): k for k in packages}
+        pending = list(roots)
+        bundled = set()
+        while pending:
+            requirement = pending.pop()
+            key = normalized.get(requirement.lower().replace("_", "-"))
+            assert key is not None, f"Missing required Pyodide package: {requirement}"
+            if key in bundled:
+                continue
+            bundled.add(key)
+            item = packages[key]
+            filename = item.get("file_name", "")
+            assert filename and "://" not in filename, (
+                f"Required package {key} would hit CDN: {filename}"
+            )
+            assert (pyodide_dir / filename).is_file(), (
+                f"Missing local package {key}: {filename}"
+            )
+            pending.extend(item.get("depends") or [])
+        for name, item in packages.items():
+            filename = item.get("file_name", "")
+            if "://" in filename:
+                assert filename.startswith(
+                    "https://fastly.jsdelivr.net/pyodide/v0.23.4/full/"
+                ), f"Unexpected external package source {name}: {filename}"
+        for name in ("tf.min.js", "tf-backend-webgpu.min.js",
+                     "course-losses.js"):
+            assert (dist / "vendor" / name).is_file(), (
+                f"Missing self-hosted TF.js resource: {name}"
+            )
+        assert (dist / "assets/fonts/SourceHanSansSC-Regular.otf").is_file()
+        print(f"Bundled Pyodide native dependency closure: {len(bundled)} packages")
         for name, version in VERSIONS.items():
             key = next((k for k in packages if k.lower() == name.lower()), None)
             assert key, f"Missing official WASM package: {name}"

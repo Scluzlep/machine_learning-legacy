@@ -29,16 +29,28 @@ const server=spawn('python',['-m','http.server',String(port),'--bind','127.0.0.1
     page.on('request',r=>{if(/sqlite3/i.test(r.url()))requests.push(r.url())});
     const code=[
       'import sqlite3',
+      'import numpy as np, pandas as pd, scipy, sklearn, matplotlib',
+      'import h5py, seaborn, ipywidgets, ipympl',
+      'from PIL import Image',
+      'from browser_ml.tfjs_bridge import load_tfjs, backend',
+      'assert np.array([1, 2, 3]).sum() == 6',
+      'assert pd.DataFrame({"x": [1, 2]}).x.sum() == 3',
+      'assert Image.new("RGB", (2, 2)).size == (2, 2)',
+      'assert h5py.version.hdf5_version',
+      'assert ipywidgets.IntSlider(min=0, max=10, value=3).value == 3',
+      'tfjs = await load_tfjs(backend="cpu")',
+      'assert backend() == "cpu"',
       'conn = sqlite3.connect(":memory:")',
       'assert conn.execute("select 6*7").fetchone() == (42,)',
-      'print("ML_LOCAL_SQLITE3_OK", sqlite3.sqlite_version)'
+      'print("ML_LOCAL_SQLITE3_OK", sqlite3.sqlite_version)',
+      'print("ML_OFFLINE_COURSE_STACK_OK", scipy.__version__, sklearn.__version__, tfjs.version.tfjs)'
     ].join('\n');
     const url='http://127.0.0.1:'+port+'/machine_learning-legacy/repl/index.html?kernel=python&code='+encodeURIComponent(code);
     const res=await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
     assert.equal(res.status(),200);
-    await page.waitForFunction(()=>[...document.querySelectorAll('.jp-OutputArea-output')].some(x=>x.textContent.includes('ML_LOCAL_SQLITE3_OK')),null,{timeout:100000});
+    await page.waitForFunction(()=>[...document.querySelectorAll('.jp-OutputArea-output')].some(x=>x.textContent.includes('ML_OFFLINE_COURSE_STACK_OK')),null,{timeout:115000});
     assert(requests.some(u=>u.includes('/machine_learning-legacy/pyodide/sqlite3-')), 'sqlite3 must fetch from local Pyodide directory: '+JSON.stringify(requests));
     assert.equal(external.length,0,'All requests should stay on the Pages origin');
-    console.log('sqlite3 executes and loads from local Pyodide without CDN: PASS');
+    console.log('sqlite3 + NumPy, pandas, SciPy, sklearn, h5py, Pillow, widgets, seaborn, TF.js CPU: all same origin without CDN PASS');
   }finally{if(browser)await browser.close();server.kill()}
 })().catch(err=>{console.error(err);process.exitCode=1});
