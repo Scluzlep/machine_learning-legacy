@@ -23,8 +23,14 @@ const server = spawn('python', ['-m', 'http.server', String(port),
       if (msg.type() === 'error') errors.push(msg.text());
     });
     const python = [
-      'import matplotlib.pyplot as plt',
+      'import ipywidgets as widgets',
+      'from IPython.display import display',
+      'slider = widgets.IntSlider(min=0, max=10, value=3, description="兼容测试")',
+      'display(slider)',
+      'assert slider.value == 3',
+      'print("ML_COMM_WIDGET_OK")',
       "%matplotlib widget",
+      'import matplotlib.pyplot as plt',
       'import warnings',
       'from pathlib import Path',
       'from matplotlib import font_manager',
@@ -52,7 +58,7 @@ const server = spawn('python', ['-m', 'http.server', String(port),
     await page.waitForFunction(
       () => [...document.querySelectorAll('.jp-OutputArea-output')]
           .some(x => x.textContent.includes('ML_WIDGET_BACKEND_OK')),
-      null, {timeout: 180000}
+      null, {timeout: 90000}
     );
     const outputs = await page.locator('.jp-OutputArea-output').allInnerTexts();
     assert.match(outputs.join('\n'), /ML_WIDGET_BACKEND_OK.*ipympl/i);
@@ -62,7 +68,16 @@ const server = spawn('python', ['-m', 'http.server', String(port),
     assert.doesNotMatch(outputs.join('\n'), /not a recognised.*backend|Traceback|ModuleNotFoundError/);
     console.log('Matplotlib interactive ipympl + Adobe Source Han Sans SC glyphs: PASS');
   } catch(error) {
-    console.error(error);
+    console.error('Widget smoke failed:', error);
+    try {
+      if (browser) {
+        const pages = browser.contexts().flatMap(context => context.pages());
+        for (const p of pages) {
+          const outputs = await p.locator('.jp-OutputArea-output').allInnerTexts().catch(() => []);
+          console.error('Widget smoke outputs:', outputs.join('\\n').slice(-7000));
+        }
+      }
+    } catch(_ignored) {}
     process.exitCode = 1;
   } finally {
     if (browser) await browser.close();

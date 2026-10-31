@@ -34,6 +34,10 @@ async def initialize_course_dependencies():
     install_boston()
     install_linear_regression()
     install_ridge()
+    # matplotlib_inline 0.2.x assumes Matplotlib >=3.7. Restore the
+    # harmless internal RcParams getter on the pinned WASM Matplotlib 3.5.2.
+    from .legacy_ui import install_matplotlib_compat
+    install_matplotlib_compat()
     import piplite
     from .imports_bootstrap import _register_ipympl_backends
 
@@ -49,6 +53,10 @@ async def initialize_course_dependencies():
         ["ipywidgets==7.6.5", "ipympl==0.9.3", "seaborn==0.11.2"],
         deps=False
     )
+    # ipywidgets 7.x expects Comm.kernel, but the browser kernel's Comm
+    # exposes send() without that legacy attribute. Restore the marker.
+    from .legacy_ui import install_widget_comm_compat
+    install_widget_comm_compat()
     _register_ipympl_backends()
     from .chinese_font import install as install_chinese_font
     await install_chinese_font()

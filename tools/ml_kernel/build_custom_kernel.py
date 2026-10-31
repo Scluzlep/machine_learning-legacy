@@ -46,6 +46,7 @@ def build(wheel: Path, root: Path, destination: Path) -> Path:
     files["pyodide_kernel/imports_bootstrap.py"] = (root / "tools/ml_kernel/imports_bootstrap.py").read_bytes()
     files["pyodide_kernel/chinese_font.py"] = (root / "tools/ml_kernel/chinese_font.py").read_bytes()
     files["pyodide_kernel/legacy_scikit.py"] = (root / "tools/ml_kernel/legacy_scikit.py").read_bytes()
+    files["pyodide_kernel/legacy_ui.py"] = (root / "tools/ml_kernel/legacy_ui.py").read_bytes()
     for filename in ("legacy_numpy.py", "legacy_scipy.py"):
         files["pyodide_kernel/" + filename] = (
             root / "tools/ml_kernel" / filename

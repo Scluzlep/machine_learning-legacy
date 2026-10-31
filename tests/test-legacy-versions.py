@@ -32,6 +32,7 @@ def verify(dist: Path | None = None) -> None:
     vendor = (ROOT / "tools/ml_kernel/vendor_pyodide.py").read_text(encoding="utf-8")
     assert 'PYODIDE_VERSION = "0.23.4"' in vendor
     assert "repodata.json" in vendor and "pyodide.mjs" in vendor
+    assert (ROOT / "tools/ml_kernel/legacy_ui.py").is_file(), "Missing UI compatibility shim"
 
     if dist is not None:
         piplite_index = dist / "pypi/all.json"

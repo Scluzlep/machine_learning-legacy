@@ -52,6 +52,7 @@ jobs:
           python tools/ml_kernel/build_custom_kernel.py "$KERNEL_WHEEL" --output .ml-wheel
           python tests/test-notebook-integrity.py
           python tests/test-kernel-transform.py
+          python tests/test-legacy-ui.py
           python tests/test-imports-bootstrap.py
           python tests/test-legacy-versions.py
           python tools/ml_kernel/stage_notebooks.py --site-base /machine_learning-legacy
@@ -156,6 +157,9 @@ jobs:
           node tests/browser-smoke.cjs
           node tests/repl-zero-edit.cjs
           node tests/notebook-imports.cjs
+      - name: Check legacy ipywidgets and Matplotlib backend (diagnostic)
+        continue-on-error: true
+        run: node tests/repl-widget.cjs
       # Manual builds of compat must not overwrite the main Pages site.
       - name: Configure Pages
         if: github.ref == 'refs/heads/main'
