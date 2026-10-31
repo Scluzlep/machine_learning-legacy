@@ -219,6 +219,13 @@ async function recordNotebook(rel) {
     });
     page.on('requestfailed',r=>{
       const item={kind:'requestfailed',url:r.url(),message:r.failure()?.errorText};
+      // A media element can cancel an in-flight .mp4 range request on pause,
+      // seek, or navigation. Chrome reports ERR_ABORTED, not an HTTP/network
+      // error. Keep this event in the raw trace but do not fail the Notebook.
+      if (/\\.mp4(?:[?#]|$)/i.test(item.url) && /ERR_ABORTED/i.test(item.message||'')) {
+        append(logs,{...item,kind:'expected-video-abort'});
+        return;
+      }
       record.httpFailures.push(item);append(logs,item);
     });
     page.on('worker',w=>append(logs,{kind:'worker',url:w.url()}));
