@@ -139,6 +139,24 @@ def transform_tf_fit(code: str) -> str:
     return ast.unparse(new_tree)
 
 
+
+def prefer_static_plots_for_c2w3(code: str) -> str:
+    """Use inline PNG plots for C2_W3's static-only legacy chart helpers.
+
+    Its saved outputs reference ipympl model IDs, but the original notebook
+    carries no serialized widget manager state. The legacy Lab frontend can
+    therefore show a blank widget even when a valid PNG was generated.
+    Change only the *executed* import cell; do not edit any .ipynb on disk.
+    Other labs keep their interactive %matplotlib widget backend.
+    """
+    if "from assigment_utils import *" not in code:
+        return code
+    return re.sub(
+        r"(?m)^([ \t]*)%matplotlib[ \t]+(?:widget|ipympl)([ \t]*(?:#.*)?)$",
+        r"\1%matplotlib inline\2", code
+    )
+
+
 def uses_legacy_scipy(code: str) -> bool:
     """Check references to SciPy image APIs removed before this WASM release."""
     return bool(re.search(
@@ -151,6 +169,7 @@ async def prepare_cell(code: str) -> str:
     if not isinstance(code, str):
         return code
     await initialize_course_dependencies()
+    code = prefer_static_plots_for_c2w3(code)
     # Resolve hidden imports such as lab_utils_uni -> ipywidgets before
     # executing the original unchanged course cell.
     from .imports_bootstrap import discover, install_missing
