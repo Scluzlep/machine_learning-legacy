@@ -44,6 +44,7 @@ def build(wheel: Path, root: Path, destination: Path) -> Path:
     files[kernel_path] = transform_kernel(files[kernel_path])
     files["pyodide_kernel/kernel_runtime.py"] = (root / "tools/ml_kernel/kernel_runtime.py").read_bytes()
     files["pyodide_kernel/imports_bootstrap.py"] = (root / "tools/ml_kernel/imports_bootstrap.py").read_bytes()
+    files["pyodide_kernel/borch_compat.py"] = (root / "tools/ml_kernel/borch_compat.py").read_bytes()
     files["pyodide_kernel/chinese_font.py"] = (root / "tools/ml_kernel/chinese_font.py").read_bytes()
     files["pyodide_kernel/legacy_scikit.py"] = (root / "tools/ml_kernel/legacy_scikit.py").read_bytes()
     files["pyodide_kernel/legacy_ui.py"] = (root / "tools/ml_kernel/legacy_ui.py").read_bytes()
