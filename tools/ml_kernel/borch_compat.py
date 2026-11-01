@@ -153,8 +153,13 @@ def _wheel_url() -> str:
     return f"/{parts[1]}/vendor/{PYBORCH_WHEEL}"
 
 
-def _gpu_supported() -> bool:
-    """Probe before import: old Pyodide lacks JSPI even if WebGPU is present."""
+async def _gpu_supported() -> bool:
+    """Verify an actual GPU adapter, not just navigator.gpu's presence.
+
+    Headless Chromium and blocklisted GPUs may expose WebGPU but resolve
+    requestAdapter() to null. Probing *before* importing Borch avoids
+    initializing its global runtime in an unusable state.
+    """
     try:
         from js import WebAssembly, navigator
         from pyodide.ffi import run_sync
@@ -162,12 +167,16 @@ def _gpu_supported() -> bool:
             return False
         if getattr(WebAssembly, "Suspending", None) is None:
             return False
-        return getattr(navigator, "gpu", None) is not None
-    except (ImportError, AttributeError, TypeError):
+        gpu = getattr(navigator, "gpu", None)
+        if gpu is None:
+            return False
+        adapter = await gpu.requestAdapter()
+        return adapter is not None and type(adapter).__name__ not in ("JsNull", "jsnull")
+    except Exception:
         return False
 
 
-def _missing_gpu_or_jspi(exc: ImportError) -> bool:
+def _missing_gpu_or_jspi(exc: BaseException) -> bool:
     message = str(exc).lower()
     return any(
         x in message for x in (
@@ -194,13 +203,15 @@ async def ensure_torch() -> types.ModuleType:
     # The package is bundled into the site's piplite index at build time.
     await piplite.install(_wheel_url(), deps=False)
 
-    gpu_possible = _gpu_supported()
+    gpu_possible = await _gpu_supported()
     gpu_error = None
     if gpu_possible:
         try:
             backend = importlib.import_module("borch_webgpu")
             name = "webgpu"
-        except ImportError as exc:
+        except Exception as exc:
+            # JSPI/WebGPU failures can be pyodide.ffi.JsException rather
+            # than Python ImportError. Do not mask unrelated import bugs.
             if not _missing_gpu_or_jspi(exc):
                 raise
             gpu_error = str(exc)
