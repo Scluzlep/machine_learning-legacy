@@ -55,6 +55,7 @@ jobs:
           python tests/test-legacy-ui.py
           python tests/test-ipympl-canvas-patch.py
           python tests/test-imports-bootstrap.py
+          python tests/test-borch-compat.py
           python tests/test-legacy-versions.py
           python tools/ml_kernel/stage_notebooks.py --site-base /machine_learning-legacy
           python tests/test-notebook-integrity.py --staged .ml-contents
@@ -88,8 +89,15 @@ jobs:
           )
           print('Bundled course widget wheels:', sorted(x.name for x in wheel_dir.glob('*.whl')))
           PY
+      - name: Vendor Borch PyTorch compatibility wheel
+        run: python tools/ml_kernel/vendor_borch.py --output .ml-wheel
       - name: Build static site
         run: jupyter lite build --contents .ml-contents --output-dir dist
+      - name: Self-host Borch wheel
+        run: |
+          mkdir -p dist/vendor
+          cp .ml-wheel/pyborch-1.14.1-py3-none-any.whl dist/vendor/
+          test -s dist/vendor/pyborch-1.14.1-py3-none-any.whl
       - name: Fix JupyterLite 0.1.1 Webpack Worker import
         run: |
           python tests/test-legacy-worker-patch.py
@@ -146,6 +154,7 @@ jobs:
           assert any(output.rglob('ipympl-*.whl')), 'ipympl Python wheel is not bundled'
           assert any(output.rglob('ipywidgets-*.whl')), 'ipywidgets Python wheel is not bundled'
           assert any(output.rglob('seaborn-*.whl')), 'seaborn Python wheel is not bundled'
+          assert (output/'vendor/pyborch-1.14.1-py3-none-any.whl').stat().st_size > 100000
           print('Validated',len(files),'notebooks, TF.js bundle and Chinese translation')
           PY
       - name: Test scientific WASM packages and TensorFlow.js in Chromium
@@ -158,6 +167,7 @@ jobs:
           cp machine_learning/browser_ml/tfjs_layers.py dist/vendor/tfjs_layers.py
           node tests/browser-smoke.cjs
           node tests/repl-zero-edit.cjs
+          node tests/repl-torch.cjs
           node tests/notebook-imports.cjs
           node tests/repl-widget-interaction.cjs
           node tests/repl-sqlite.cjs
