@@ -166,6 +166,8 @@ async def prepare_cell(code: str) -> str:
         from .auto_tfjs.tfjs_compat import install
         await install()
     await install_missing(code)
+    from .borch_compat import prepare_torch
+    await prepare_torch(code)
     # Repair only the removed sklearn APIs used by historical course cells.
     # Load native Pyodide wheels before importing the relevant modules.
     if re.search(r"\bload_boston\b", code):
