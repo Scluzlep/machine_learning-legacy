@@ -49,6 +49,7 @@ with zipfile.ZipFile(wheel) as archive:
     assert "code = await _prepare_ml_cell(code)" in kernel
     assert "pyodide_kernel/auto_tfjs/tfjs_bridge.py" in archive.namelist()
     assert "pyodide_kernel/kernel_runtime.py" in archive.namelist()
+    assert "pyodide_kernel/borch_compat.py" in archive.namelist()
     assert "pyodide_kernel/legacy_scikit.py" in archive.namelist()
     assert "pyodide_kernel/legacy_numpy.py" in archive.namelist()
     assert "pyodide_kernel/legacy_scipy.py" in archive.namelist()
